@@ -1,8 +1,8 @@
 import {inject} from 'aurelia-dependency-injection';
-import authUtils from './authUtils';
+import {extend, forEach, isFunction, isString, joinUrl, camelCase, status} from './auth-utilities';
 import {Storage} from './storage';
 import {Popup} from './popup';
-import {BaseConfig} from './baseConfig';
+import {BaseConfig} from './base-config';
 import {Authentication} from './authentication';
 import {HttpClient, json} from 'aurelia-fetch-client';
 import 'isomorphic-fetch';
@@ -33,23 +33,23 @@ export class OAuth2 {
   }
 
   open(options, userData) {
-    let current = authUtils.extend({}, this.defaults, options);
+    let current = extend({}, this.defaults, options);
 
     //state handling
     let stateName = current.name + '_state';
 
-    if (authUtils.isFunction(current.state)) {
+    if (isFunction(current.state)) {
       this.storage.set(stateName, current.state());
-    } else if (authUtils.isString(current.state)) {
+    } else if (isString(current.state)) {
       this.storage.set(stateName, current.state);
     }
 
     //nonce handling
     let nonceName = current.name + '_nonce';
 
-    if (authUtils.isFunction(current.nonce)) {
+    if (isFunction(current.nonce)) {
       this.storage.set(nonceName, current.nonce());
-    } else if (authUtils.isString(current.nonce)) {
+    } else if (isString(current.nonce)) {
       this.storage.set(nonceName, current.nonce);
     }
 
@@ -69,34 +69,33 @@ export class OAuth2 {
         }
 
         if (current.responseType.toUpperCase().includes('TOKEN')) { //meaning implicit flow or hybrid flow
-            if (!this.verifyIdToken(oauthData, current.name)){
-                return Promise.reject('OAuth 2.0 Nonce parameter mismatch.');
-            };
+          if (!this.verifyIdToken(oauthData, current.name)) {
+            return Promise.reject('OAuth 2.0 Nonce parameter mismatch.');
+          }
+
           return oauthData;
         }
 
         return this.exchangeForToken(oauthData, userData, current); //responseType is authorization code only (no token nor id_token)
       });
-  };
+  }
 
-
-  verifyIdToken(oauthData, providerName){
-
-        let idToken = oauthData && oauthData[this.config.responseIdTokenProp];
-        if(!idToken) return true;
-        let idTokenObject = this.auth.decomposeToken(idToken);
-        if(!idTokenObject) return true;
-        let nonceFromToken = idTokenObject.nonce;
-        if(!nonceFromToken) return true;
-        let nonceInStorage = this.storage.get(providerName + '_nonce');
-        if (nonceFromToken!==nonceInStorage) {
-            return false;
-        }
-        return true;
-    };
+  verifyIdToken(oauthData, providerName) {
+    let idToken = oauthData && oauthData[this.config.responseIdTokenProp];
+    if (!idToken) return true;
+    let idTokenObject = this.auth.decomposeToken(idToken);
+    if (!idTokenObject) return true;
+    let nonceFromToken = idTokenObject.nonce;
+    if (!nonceFromToken) return true;
+    let nonceInStorage = this.storage.get(providerName + '_nonce');
+    if (nonceFromToken !== nonceInStorage) {
+      return false;
+    }
+    return true;
+  }
 
   exchangeForToken(oauthData, userData, current) {
-    let data = authUtils.extend({}, userData, {
+    let data = extend({}, userData, {
       code: oauthData.code,
       clientId: current.clientId,
       redirectUri: current.redirectUri
@@ -106,9 +105,9 @@ export class OAuth2 {
       data.state = oauthData.state;
     }
 
-    authUtils.forEach(current.responseParams, param => data[param] = oauthData[param]);
+    forEach(current.responseParams, param => data[param] = oauthData[param]);
 
-    let exchangeForTokenUrl = this.config.baseUrl ? authUtils.joinUrl(this.config.baseUrl, current.url) : current.url;
+    let exchangeForTokenUrl = this.config.baseUrl ? joinUrl(this.config.baseUrl, current.url) : current.url;
     let credentials         = this.config.withCredentials ? 'include' : 'same-origin';
 
     return this.http.fetch(exchangeForTokenUrl, {
@@ -116,21 +115,17 @@ export class OAuth2 {
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify(data),
       credentials: credentials
-    })
-      .then(authUtils.status)
-      .then((response) => {
-        return response
-      });
+    }).then(status);
   }
 
   buildQueryString(current) {
     let keyValuePairs = [];
     let urlParams     = ['defaultUrlParams', 'requiredUrlParams', 'optionalUrlParams'];
 
-    authUtils.forEach(urlParams, params => {
-      authUtils.forEach(current[params], paramName => {
-        let camelizedName = authUtils.camelCase(paramName);
-        let paramValue    = authUtils.isFunction(current[paramName]) ? current[paramName]() : current[camelizedName];
+    forEach(urlParams, params => {
+      forEach(current[params], paramName => {
+        let camelizedName = camelCase(paramName);
+        let paramValue    = isFunction(current[paramName]) ? current[paramName]() : current[camelizedName];
 
         if (paramName === 'state') {
           let stateName = current.name + '_state';
@@ -157,9 +152,3 @@ export class OAuth2 {
     return keyValuePairs.map(pair => pair.join('=')).join('&');
   }
 }
-
-
-
-
-
-

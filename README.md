@@ -2,6 +2,9 @@
 
 #### Sample app: [aurelia-auth.opinionatedapps.com](http://aureliauth.opinionatedapps.com)
 #### Sources sample app: [github.com/paulvanbladel/aurelia-auth-sample] (https://github.com/paulvanbladel/aurelia-auth-sample)
+
+#### On NPM this module is also called [aurelia-auth](https://www.npmjs.com/package/aurelia-auth)
+
 ## What is aurelia-auth?
 aurelia-auth is a token-based authentication plugin for [Aurelia](http://aurelia.io/) with support for popular social authentication providers (Google, Twitter, Facebook, LinkedIn, Windows Live, FourSquare, Yahoo, Github, Instagram ) and a local stragegy, i.e. simple username (email) and password.
 
@@ -25,6 +28,10 @@ Obviously, the prerequisites ([NodeJs](https://nodejs.org/), [Gulp](http://gulpj
 # Installation
 ```
 jspm install aurelia-auth
+```
+On Npm:
+```
+Npm install aurelia-auth --save
 ```
 
 # How to use aurelia-auth?
@@ -130,31 +137,155 @@ export class App {
 }
 ```
 
-## Configure Http Client
-Allthough the Fetch Client is the preferred 'http client' for aurelia, there is also support for aurelia-http-client.
-The configuration of aurelia-http-client is similar to aurelia-fetch-client.
-In your aurelia app file, inject the `HttpClientConfig`.
-In the activate step, invoke the `configure()` method to send Authorization tokens with every HttpClient request.
+## What exactly is 'configured' on the Http Client and can we have multiple endpoints?
+Well, it's import to have a clear understanding how exactly the default Http Client is
+augemented by aurelia-auth and that we have the full freedom to use 
+your own custom logic as well.
+Let's first show how  aurelia-auth augments the Http Client by 
+looking at app.fetch-httpClient.config.js [](https://github.com/paulvanbladel/aurelia-auth/blob/master/src/app.fetch-httpClient.config.js) :
 
-```js
+
+ 
+```
+import {inject} from 'aurelia-dependency-injection';
+import {HttpClient} from 'aurelia-fetch-client';
+import 'isomorphic-fetch';
+import {Authentication} from './authentication';
+
+@inject(HttpClient, Authentication )
+export class FetchConfig {
+    constructor(httpClient, authService) {
+        this.httpClient = httpClient;
+        this.auth = authService;
+    }
+
+    configure() {
+        this.httpClient.configure(httpConfig => {
+            httpConfig
+                .withDefaults({
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                })
+                .withInterceptor(this.auth.tokenInterceptor);
+        });
+    }
+}
+```
+So, basically a default Accept header is added and a request interceptor is injected.
+'tokenInterceptor' can be found in [authentication.js](https://github.com/paulvanbladel/aurelia-auth/blob/master/src/authentication.js) 
+and is responsible for adding the bearer token to each request message making use of the 
+default Http Client. 
+
+```
+get tokenInterceptor() {
+    let config = this.config;
+    let storage = this.storage;
+    let auth = this;
+    return {
+      request(request) {
+        if (auth.isAuthenticated() && config.httpInterceptor) {
+          let tokenName = config.tokenPrefix ? `${config.tokenPrefix}_${config.tokenName}` : config.tokenName;
+          let token = storage.get(tokenName);
+
+          if (config.authHeader && config.authToken) {
+            token = `${config.authToken} ${token}`;
+          }
+
+          request.headers.append(config.authHeader, token);
+        }
+        return request;
+      }
+    };
+  }
+```
+So, this behavior is executed automatically when the HttpClient is configured as explained in 'Configure the Fetch Client'.
+
+Now, what if we don't want this to happen for all Http request we make or imagine we have
+multiple end points and some of them do not require authentication.
+
+The solution is very simple and based on standard ES 2016 OO techniques: 
+derive a custom Http Client.
+
+In aurelia-auth-sample we can find following custom Http Client:
+
+```
+import {HttpClient} from 'aurelia-fetch-client';
 import {inject} from 'aurelia-framework';
-import HttpClientConfig from 'aurelia-auth/app.httpClient.config';
+import 'isomorphic-fetch';
+import {AuthService} from 'aurelia-auth';
 
-@inject(Router,HttpClientConfig,AppRouterConfig )
-export class App {
+@inject(AuthService)
+export class CustomHttpClient extends HttpClient {
+    constructor(auth) {
+        super();
+        this.configure(config => {
+            config
+                .withBaseUrl('http://localhost:4000/')
+                .withDefaults({
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'Fetch'
+                    }
+                })
+                //we call ourselves the interceptor which comes with aurelia-auth
+                //obviously when this custom Http Client is used for services 
+                //which don't need a bearer token, you should not inject the token interceptor
+                .withInterceptor(auth.tokenInterceptor)
+                //still we can augment the custom HttpClient with own interceptors
+                .withInterceptor({
+                    request(request) {
+                        console.log(`Requesting ${request.method} ${request.url}`);
+                        return request; // you can return a modified Request, or you can short-circuit the request by returning a Response
+                    },
+                    response(response) {
+                        console.log(`Received ${response.status} ${response.url}`);
+                        return response; // you can return a modified Response
+                    }
+                });
+                });
+    }
+}
+```
+We use a simple ES 2015 OO technique: inheritance via the extends keyword.
+So, the above custom Http Client uses its own headers and baseUrl and 
+has its own interception logic.
+Note, that you can still use the aurelia-auth standard interceptor 
+for adding the bearer token.
 
-  constructor(router, httpClientConfig){
-    this.router = router;
-    this.httpClientConfig = httpClientConfig;
+As you can see, no specialised aurelia plugins needed for supporting multiple endpoints !
+
+
+We can consume this custom Http Client as follows:
+
+```
+import {inject, useView} from 'aurelia-framework';
+import {CustomHttpClient} from './customHttpClient';
+import 'isomorphic-fetch';
+@inject(CustomHttpClient)
+@useView('./customer.html')
+export class Customer2{
+  heading = 'Customer management with custom http service';
+  customers = [];
+
+  url = 'api/customer';
+
+  constructor(http){
+    this.http = http;
   }
 
   activate(){
-    this.httpClientConfig.configure();
-  }
 
-  ...
+   return this.http.fetch(this.url)
+   .then(response =>  response.json())
+   .then(c => this.customers = c);
+}
+
 }
 ```
+
+ 
 
 ## Provide a UI for a login, signup and profile.
 
@@ -271,9 +402,9 @@ Via the above mentioned configuration virtually all aspects of the authenticatio
   httpInterceptor: true,
   loginOnSignup: true,
   baseUrl: '/',
-  loginRedirect: '/#customer',
-  logoutRedirect: '/',
-  signupRedirect: '/login',
+  loginRedirect: '#/',
+  logoutRedirect: '#/',
+  signupRedirect: '#/login',
   loginUrl: '/auth/login',
   signupUrl: '/auth/signup',
   profileUrl: '/auth/me',

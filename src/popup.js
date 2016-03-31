@@ -1,5 +1,5 @@
-import authUtils from './authUtils';
-import {BaseConfig}  from './baseConfig';
+import {parseQueryString, extend, forEach} from './auth-utilities';
+import {BaseConfig}  from './base-config';
 import {inject} from 'aurelia-dependency-injection';
 
 @inject(BaseConfig)
@@ -13,10 +13,8 @@ export class Popup {
 
   open(url, windowName, options, redirectUri) {
     this.url = url;
-    var optionsString = this.stringifyOptions(this.prepareOptions(options || {}));
-
+    let optionsString = this.stringifyOptions(this.prepareOptions(options || {}));
     this.popupWindow = window.open(url, windowName, optionsString);
-
     if (this.popupWindow && this.popupWindow.focus) {
       this.popupWindow.focus();
     }
@@ -25,23 +23,23 @@ export class Popup {
   }
 
   eventListener(redirectUri) {
-    var self = this;
-    var promise = new Promise((resolve, reject) => {
+    let self = this;
+    let promise = new Promise((resolve, reject) => {
       self.popupWindow.addEventListener('loadstart', (event) => {
         if (event.url.indexOf(redirectUri) !== 0) {
           return;
         }
 
-        var parser = document.createElement('a');
+        let parser = document.createElement('a');
         parser.href = event.url;
 
         if (parser.search || parser.hash) {
-          var queryParams = parser.search.substring(1).replace(/\/$/, '');
-          var hashParams = parser.hash.substring(1).replace(/\/$/, '');
-          var hash = authUtils.parseQueryString(hashParams);
-          var qs = authUtils.parseQueryString(queryParams);
+          let queryParams = parser.search.substring(1).replace(/\/$/, '');
+          let hashParams = parser.hash.substring(1).replace(/\/$/, '');
+          let hash = parseQueryString(hashParams);
+          let qs = parseQueryString(queryParams);
 
-          authUtils.extend(qs, hash);
+          extend(qs, hash);
 
           if (qs.error) {
             reject({
@@ -71,20 +69,20 @@ export class Popup {
   }
 
   pollPopup() {
-    var self = this;
-    var promise = new Promise((resolve, reject) => {
+    let self = this;
+    let promise = new Promise((resolve, reject) => {
       this.polling = setInterval(() => {
         try {
-          var documentOrigin = document.location.host;
-          var popupWindowOrigin = self.popupWindow.location.host;
+          let documentOrigin = document.location.host;
+          let popupWindowOrigin = self.popupWindow.location.host;
 
           if (popupWindowOrigin === documentOrigin && (self.popupWindow.location.search || self.popupWindow.location.hash)) {
-            var queryParams = self.popupWindow.location.search.substring(1).replace(/\/$/, '');
-            var hashParams = self.popupWindow.location.hash.substring(1).replace(/[\/$]/, '');
-            var hash = authUtils.parseQueryString(hashParams);
-            var qs = authUtils.parseQueryString(queryParams);
+            let queryParams = self.popupWindow.location.search.substring(1).replace(/\/$/, '');
+            let hashParams = self.popupWindow.location.hash.substring(1).replace(/[\/$]/, '');
+            let hash = parseQueryString(hashParams);
+            let qs = parseQueryString(queryParams);
 
-            authUtils.extend(qs, hash);
+            extend(qs, hash);
 
             if (qs.error) {
               reject({
@@ -97,7 +95,9 @@ export class Popup {
             self.popupWindow.close();
             clearInterval(self.polling);
           }
-        } catch (error) {}
+        } catch (error) {
+          // no-op
+        }
 
         if (!self.popupWindow) {
           clearInterval(self.polling);
@@ -111,16 +111,14 @@ export class Popup {
           });
         }
       }, 35);
-
-
     });
     return promise;
   }
 
   prepareOptions(options) {
-    var width = options.width || 500;
-    var height = options.height || 500;
-    return authUtils.extend({
+    let width = options.width || 500;
+    let height = options.height || 500;
+    return extend({
       width: width,
       height: height,
       left: window.screenX + ((window.outerWidth - width) / 2),
@@ -129,8 +127,8 @@ export class Popup {
   }
 
   stringifyOptions(options) {
-    var parts = [];
-    authUtils.forEach(options, function(value, key) {
+    let parts = [];
+    forEach(options, function(value, key) {
       parts.push(key + '=' + value);
     });
     return parts.join(',');
