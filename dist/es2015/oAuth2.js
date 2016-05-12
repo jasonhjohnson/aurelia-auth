@@ -110,7 +110,8 @@ export let OAuth2 = (_dec = inject(Storage, Popup, HttpClient, BaseConfig, Authe
 
     return this.http.fetch(exchangeForTokenUrl, {
       method: 'post',
-      body: json(data),
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(data),
       credentials: credentials
     }).then(status);
   }
